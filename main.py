@@ -1,27 +1,21 @@
-from fastapi import FastAPI, Response, HTTPException
+from fastapi import FastAPI, Response, HTTPException, Request
 import requests
 import urllib3
 
-# إخفاء تحذيرات الـ SSL
+# Disable SSL warnings for smoother proxy performance
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI()
 
-# --- NEW ISRAELI PROXY (Updated as per your request) ---
+# --- ISRAELI RESIDENTIAL PROXY CONFIGURATION ---
 PROXIES = {
     "http": "http://45.150.108.239:39811",
     "https": "http://45.150.108.239:39811"
 }
 
-# --- THE WORKING TOKEN URL ---
-# Note: Use the manual link you captured from HTTP Toolkit here
-MAKO_TOKEN_URL = (
-    "https://mako-streaming.akamaized.net/stream/hls/live/2033791/k12makowad/index.m3u8"
-    "?b-in-range=0-1800&hdnea=st%3D1774497892%7Eexp%3D1774498792%7Eacl%3D%2F*%7E"
-    "hmac%3Da592eee68f26e9bbd5d798d84cd4f648c9d23885d18ad2d7aecb0a6bbbd98fc0"
-)
-
-# Base path for internal segments (Prevents 404)
+# Official Mako Ticket API (Used by mobile apps)
+MAKO_API_TICKET = "https://mass.mako.co.il/ClicksStatistics/bentayemStreaming.dot?channelId=mako12&videoType=live"
+# Base streaming path to resolve relative segments
 BASE_PATH = "https://mako-streaming.akamaized.net/stream/hls/live/2033791/k12makowad/"
 
 HEADERS = {
@@ -30,27 +24,34 @@ HEADERS = {
 }
 
 @app.get("/")
-def home():
+def status():
     return {
-        "status": "Koko Manual Relay Online", 
-        "proxy": "45.150.108.239", 
-        "mode": "Direct-Token"
+        "engine": "Koko Auto-Refresh Active",
+        "proxy": "45.150.108.239",
+        "status": "online"
     }
 
 @app.get("/mako/live.m3u8")
-def get_stream():
+def get_auto_stream(request: Request):
     try:
-        # Request the .m3u8 file through the Israeli proxy
-        r = requests.get(MAKO_TOKEN_URL, headers=HEADERS, proxies=PROXIES, timeout=20, verify=False)
+        # Step 1: Request a fresh Tokenized URL from Mako API via Proxy
+        api_response = requests.get(MAKO_API_TICKET, headers=HEADERS, proxies=PROXIES, timeout=15, verify=False)
+        data = api_response.json()
         
-        if r.status_code == 200:
-            # Fix internal profile links for VLC
-            fixed_content = r.text.replace('profile', BASE_PATH + 'profile')
-            return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
-        else:
-            # If Proxy fails, it will show the status code here
-            raise HTTPException(status_code=r.status_code, detail=f"Mako server returned status: {r.status_code}")
+        # Extract the dynamic media URL containing the fresh 'hdnea' token
+        fresh_url = data.get("mediaUrl")
+        
+        if fresh_url:
+            # Step 2: Fetch the actual M3U8 playlist using the new token
+            r = requests.get(fresh_url, headers=HEADERS, proxies=PROXIES, timeout=15, verify=False)
             
+            if r.status_code == 200:
+                # Step 3: Path Correction (Ensures internal segments load in VLC)
+                fixed_content = r.text.replace('profile', BASE_PATH + 'profile')
+                return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
+        
+        raise HTTPException(status_code=500, detail="Mako API failed to provide a valid link")
+
     except Exception as e:
-        # Catching proxy connection timeout or failure
-        raise HTTPException(status_code=500, detail=f"Proxy Connection Error: {str(e)}")
+        # Log error details if the proxy or API fails
+        raise HTTPException(status_code=500, detail=f"Auto-Fetch System Error: {str(e)}")
