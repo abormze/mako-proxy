@@ -3,42 +3,36 @@ import requests
 
 app = FastAPI()
 
-# --- LIVE ISRAEL PROXY CONFIGURATION ---
-# Using your provided proxy: 45.150.108.239:39811
-PROXIES = {
-    "http": "http://45.150.108.239:39811",
-    "https": "http://45.150.108.239:39811"
-}
-
+# Mako 12 Direct Stream URL
 MAKO_HLS_URL = "https://mako-vna-eu.akamaized.net/hls/live/2033787/mako12/index.m3u8"
 
+# Professional Headers to bypass security
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
     "Referer": "https://www.mako.co.il/",
-    "Origin": "https://www.mako.co.il"
+    "Origin": "https://www.mako.co.il",
+    "Accept": "*/*",
+    "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7"
 }
 
 @app.get("/")
 def home():
     return {
-        "status": "Koko Proxy is Online",
-        "proxy_active": "45.150.108.239",
-        "target": "Mako 12"
+        "status": "Koko Direct Stream is Online",
+        "region": "Bypass Mode Active"
     }
 
 @app.get("/mako/live.m3u8")
 def get_mako_stream():
     try:
-        # Step 1: Attempt to get stream via your Israel Proxy
-        response = requests.get(MAKO_HLS_URL, headers=HEADERS, proxies=PROXIES, timeout=12)
+        # Request stream directly from Akamai with headers
+        response = requests.get(MAKO_HLS_URL, headers=HEADERS, timeout=15, verify=True)
         
         if response.status_code == 200:
+            # Success! Passing the playlist to VLC/Panel
             return Response(content=response.text, media_type="application/vnd.apple.mpegurl")
         else:
-            # Step 2: Fallback to direct request if proxy fails or returns non-200
-            r_direct = requests.get(MAKO_HLS_URL, headers=HEADERS, timeout=8)
-            return Response(content=r_direct.text, media_type="application/vnd.apple.mpegurl")
+            raise HTTPException(status_code=response.status_code, detail="Mako Server rejected the request")
             
     except Exception as e:
-        # Final error if both attempts fail
         raise HTTPException(status_code=500, detail=f"Streaming Error: {str(e)}")
