@@ -13,7 +13,6 @@ HEADERS = {
     "Origin": "https://www.mako.co.il",
     "Accept": "*/*",
     "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Cache-Control": "no-cache",
     "Connection": "keep-alive"
 }
 
@@ -21,21 +20,21 @@ HEADERS = {
 def home():
     return {
         "status": "Koko Stream Engine is Online",
-        "mode": "Direct Bypass",
-        "region": "Israel Optimized"
+        "mode": "Direct Bypass (No Proxy)",
+        "channel": "Mako 12"
     }
 
 @app.get("/mako/live.m3u8")
 def get_mako_stream():
     try:
-        # Request stream directly with advanced headers to bypass Geo-block
+        # Request stream directly without any Proxy configuration
         response = requests.get(MAKO_HLS_URL, headers=HEADERS, timeout=15)
         
         if response.status_code == 200:
-            # Success! Stream playlist returned to VLC/Panel
+            # Success! Passing the playlist to VLC/Panel
             return Response(content=response.text, media_type="application/vnd.apple.mpegurl")
         else:
-            raise HTTPException(status_code=response.status_code, detail=f"Mako Rejected: {response.status_code}")
+            raise HTTPException(status_code=response.status_code, detail=f"Mako Rejected with status: {response.status_code}")
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Engine Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Direct Connection Error: {str(e)}")
