@@ -1,67 +1,60 @@
 from fastapi import FastAPI, Response, HTTPException, Request
 import requests
 import urllib3
-import re
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI()
 
-# --- ISRAELI RESIDENTIAL PROXY ---
+# --- ORIGINAL HOME PROXY (STABLE) ---
 PROXIES = {
-    "http": "http://45.150.108.239:39811",
-    "https": "http://45.150.108.239:39811"
+    "http": "http://82.81.95.155:39811",
+    "https": "http://82.81.95.155:39811"
 }
 
-# The Main Mako Live Page
-MAKO_WEB_URL = "https://www.mako.co.il/mako-vod-live/VOD-65d214a14a38241006.htm"
+# Official Mako Ticket API
+MAKO_API_TICKET = "https://mass.mako.co.il/ClicksStatistics/bentayemStreaming.dot?channelId=mako12&videoType=live"
+# Base streaming path for VLC compatibility
 BASE_PATH = "https://mako-streaming.akamaized.net/stream/hls/live/2033791/k12makowad/"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Referer": "https://www.mako.co.il/"
 }
 
 @app.get("/")
 def status():
-    return {"status": "Koko Shield Active", "mode": "Smart-Scraper", "region": "Israel-Only"}
+    return {
+        "engine": "Koko Home Shield Active",
+        "proxy": "Home-82.81",
+        "region": "Israel-Only"
+    }
 
 @app.get("/mako/live.m3u8")
 def get_stream(request: Request):
-    # --- 1. GEO-FENCE: ISRAEL ONLY ---
-    # Using Koyeb/Cloudflare Country Header
+    # 1. GEO-FENCE: ISRAEL ONLY (Koyeb/Cloudflare Header)
+    # This ensures only users in Israel can open the link
     visitor_country = request.headers.get("cf-ipcountry", "Unknown")
     
-    # Block anyone NOT in Israel
     if visitor_country != "IL" and visitor_country != "Unknown":
         raise HTTPException(
             status_code=403, 
-            detail=f"Access Denied: Stream restricted to Israel. Detected: {visitor_country}"
+            detail=f"Access Denied: Region {visitor_country} is blocked. Israel only."
         )
 
-    # --- 2. AUTOMATIC LINK EXTRACTION ---
     try:
         session = requests.Session()
-        # Fetch the webpage via Proxy
-        response = session.get(MAKO_WEB_URL, headers=HEADERS, proxies=PROXIES, timeout=15, verify=False)
         
-        # Regex to find the tokenized .m3u8 link (handles escaped slashes)
-        match = re.search(r'https?[:\\/]+[^"\s]+index\.m3u8\?hdnea=[^"\s]+', response.text)
+        # 2. Get fresh Token URL using Home Proxy
+        api_response = session.get(MAKO_API_TICKET, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
+        data = api_response.json()
+        fresh_url = data.get("mediaUrl")
         
-        if match:
-            # Clean the URL (remove backslashes if any)
-            dynamic_url = match.group(0).replace('\\', '')
-            
-            # Request the actual playlist
-            r = session.get(dynamic_url, headers=HEADERS, proxies=PROXIES, timeout=15, verify=False)
-            
-            if r.status_code == 200:
-                # Path Fix for VLC compatibility
-                fixed_content = r.text.replace('profile', BASE_PATH + 'profile')
-                return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
-        
-        raise HTTPException(status_code=500, detail="Scraper failed to extract token from page.")
+        if not fresh_url:
+            raise HTTPException(status_code=500, detail="Mako API failed to return mediaUrl")
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"System Error: {str(e)}")
+        # 3. Pull the actual M3U8 playlist using Home Proxy
+        r = session.get(fresh_url, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
+        
+        if r.status_code == 200:
