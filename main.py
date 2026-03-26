@@ -6,8 +6,8 @@ app = FastAPI()
 # --- CONFIGURATION ---
 # Recent Israel Proxy (Ensure periodic updates if it stops working)
 PROXIES = {
-    "http": "http://185.175.145.146:3128",
-    "https": "http://185.175.145.146:3128"
+    "http": "http://45.150.108.239:39811",
+    "https": "http://45.150.108.239:39811"
 }
 
 MAKO_HLS_URL = "https://mako-vna-eu.akamaized.net/hls/live/2033787/mako12/index.m3u8"
