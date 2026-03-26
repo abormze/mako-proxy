@@ -7,7 +7,13 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI()
 
-# Rotana Channels Database (Direct Links)
+# --- RE-ADDING YOUR STABLE HOME PROXY (Required to bypass 403) ---
+PROXIES = {
+    "http": "http://82.81.95.155:39811",
+    "https": "http://82.81.95.155:39811"
+}
+
+# Rotana Channels Database
 CHANNELS = {
     "cinema": "https://rotana.hibridcdn.net/rotananet/cinemamasr_net-7Y83PP5adWixDF93/playlist.m3u8",
     "aflam": "https://d35j504z0x2vu2.cloudfront.net/v1/master/0bc8e8376bd8417a1b6761138aa41c26c7309312/rotana-aflam-plus/master.m3u8",
@@ -28,7 +34,7 @@ HEADERS = {
 def home():
     return {
         "status": "Rotana Engine Online",
-        "proxy_status": "Disabled (Direct Mode)",
+        "proxy_status": "Enabled (Home-82.81)",
         "available_channels": list(CHANNELS.keys())
     }
 
@@ -40,16 +46,16 @@ def get_rotana_channel(channel_name: str):
     target_url = CHANNELS[channel_name]
     
     try:
-        # Fetching directly from Koyeb server without proxy
-        r = requests.get(target_url, headers=HEADERS, timeout=15, verify=False)
+        # Fetching via Proxy to bypass the 403 Forbidden error
+        r = requests.get(target_url, headers=HEADERS, proxies=PROXIES, timeout=15, verify=False)
         
         if r.status_code == 200:
             return Response(content=r.text, media_type="application/vnd.apple.mpegurl")
         else:
             raise HTTPException(
                 status_code=r.status_code, 
-                detail=f"Rotana denied direct access (Status: {r.status_code})"
+                detail=f"Rotana still denied access even with proxy (Status: {r.status_code})"
             )
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Server Connection Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Proxy Connection Error: {str(e)}")
