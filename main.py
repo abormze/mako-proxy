@@ -2,20 +2,20 @@ from fastapi import FastAPI, Response, HTTPException, Request
 import requests
 import urllib3
 
-# Disable SSL warnings for smoother proxy performance
+# Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI()
 
-# --- ISRAELI RESIDENTIAL PROXY CONFIGURATION ---
+# --- ISRAELI RESIDENTIAL PROXY ---
 PROXIES = {
     "http": "http://45.150.108.239:39811",
     "https": "http://45.150.108.239:39811"
 }
 
-# Official Mako Ticket API (Used by mobile apps)
+# Official Mako Ticket API (Auto-Refresh Source)
 MAKO_API_TICKET = "https://mass.mako.co.il/ClicksStatistics/bentayemStreaming.dot?channelId=mako12&videoType=live"
-# Base streaming path to resolve relative segments
+# Base streaming path
 BASE_PATH = "https://mako-streaming.akamaized.net/stream/hls/live/2033791/k12makowad/"
 
 HEADERS = {
@@ -25,33 +25,37 @@ HEADERS = {
 
 @app.get("/")
 def status():
-    return {
-        "engine": "Koko Auto-Refresh Active",
-        "proxy": "45.150.108.239",
-        "status": "online"
-    }
+    return {"status": "Koko Shield Active", "region": "Israel Only"}
 
 @app.get("/mako/live.m3u8")
 def get_auto_stream(request: Request):
+    # --- SECURITY GATE: ISRAEL ONLY ---
+    # Detect country from Koyeb/Cloudflare header
+    visitor_country = request.headers.get("cf-ipcountry", "Unknown")
+    
+    # Allow only IL (Israel) or Unknown (for local testing/no-header cases)
+    if visitor_country != "IL" and visitor_country != "Unknown":
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Access Denied: Your location ({visitor_country}) is blocked. Israel only."
+        )
+
     try:
-        # Step 1: Request a fresh Tokenized URL from Mako API via Proxy
-        api_response = requests.get(MAKO_API_TICKET, headers=HEADERS, proxies=PROXIES, timeout=15, verify=False)
+        # Step 1: Request fresh Tokenized URL from Mako via Proxy
+        api_response = requests.get(MAKO_API_TICKET, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
         data = api_response.json()
-        
-        # Extract the dynamic media URL containing the fresh 'hdnea' token
         fresh_url = data.get("mediaUrl")
         
         if fresh_url:
-            # Step 2: Fetch the actual M3U8 playlist using the new token
-            r = requests.get(fresh_url, headers=HEADERS, proxies=PROXIES, timeout=15, verify=False)
+            # Step 2: Fetch the actual M3U8 using the NEW token
+            r = requests.get(fresh_url, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
             
             if r.status_code == 200:
-                # Step 3: Path Correction (Ensures internal segments load in VLC)
+                # Step 3: Path Correction for VLC/IPTV
                 fixed_content = r.text.replace('profile', BASE_PATH + 'profile')
                 return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
         
-        raise HTTPException(status_code=500, detail="Mako API failed to provide a valid link")
+        raise HTTPException(status_code=500, detail="Mako API failed to return a link")
 
     except Exception as e:
-        # Log error details if the proxy or API fails
-        raise HTTPException(status_code=500, detail=f"Auto-Fetch System Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"System Error: {str(e)}")
