@@ -7,7 +7,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI()
 
-# --- YOUR STABLE HOME PROXY ---
+# --- YOUR STABLE HOME PROXY (82.81) ---
 PROXIES = {
     "http": "http://82.81.95.155:39811",
     "https": "http://82.81.95.155:39811"
@@ -24,12 +24,12 @@ HEADERS = {
 
 @app.get("/")
 def status():
-    return {"status": "Koko Shield v6 Online", "proxy": "Home-82.81", "region": "Israel-Only"}
+    return {"status": "Koko Shield v7 Online", "proxy": "Home-82.81", "region": "Israel-Only"}
 
 @app.get("/mako/live.m3u8")
 def get_stream(request: Request):
-    # 1. GEO-FENCE: ISRAEL ONLY
-    # This header is sent by Koyeb/Cloudflare
+    # --- 1. GEO-FENCE: ISRAEL ONLY ---
+    # Detect country from Koyeb/Cloudflare header
     visitor_country = request.headers.get("cf-ipcountry", "Unknown")
     
     if visitor_country != "IL" and visitor_country != "Unknown":
@@ -39,17 +39,18 @@ def get_stream(request: Request):
         )
 
     try:
-        # 2. Call Mako API via your Home Proxy to get the Ticket/Token
+        # --- 2. GET FRESH TOKEN VIA HOME PROXY ---
+        # Calling Mako API directly to get the mediaUrl
         api_response = requests.get(MAKO_API_TICKET, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
         data = api_response.json()
         fresh_url = data.get("mediaUrl")
         
         if fresh_url:
-            # 3. Pull the actual M3U8 playlist using the fresh token via Proxy
+            # --- 3. PULL M3U8 PLAYLIST VIA PROXY ---
             r = requests.get(fresh_url, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
             
             if r.status_code == 200:
-                # 4. Path Fix for VLC
+                # --- 4. PATH CORRECTION FOR VLC ---
                 fixed_content = r.text.replace('profile', BASE_PATH + 'profile')
                 return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
         
