@@ -1,57 +1,39 @@
 import requests
-import urllib3
 import re
-from fastapi import FastAPI, Response, Request, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Response, HTTPException
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 app = FastAPI()
 
-# --- البيانات الحقيقية من الـ Log الخاص بك ---
+# البروكسي بتاعك (هنستخدمه بس عشان نجيب التوكن الجديد)
 PROXIES = {"http": "http://82.81.95.155:39811", "https": "http://82.81.95.155:39811"}
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
-REFERER = "https://rotana.net/"
 
-@app.get("/")
-def home():
-    return {"status": "Koko Full-Tunnel Relay Active"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "Referer": "https://rotana.net/",
+    "Origin": "https://rotana.net"
+}
 
 @app.get("/rotana/cinema.m3u8")
-def get_m3u8():
-    # 1. التوكن الحالي (يمكننا جعلها أوتوماتيكية لاحقاً)
-    token = "7Y83PP5adWixDF93"
-    target_url = f"https://rotana.hibridcdn.net/rotananet/cinema_net-{token}/rotana/cinema_720p/chunks.m3u8"
-    
+def get_cinema():
     try:
-        # 2. سحب ملف الـ Playlist بالبروكسي والـ Headers
-        headers = {"User-Agent": USER_AGENT, "Referer": REFERER}
-        r = requests.get(target_url, headers=headers, proxies=PROXIES, timeout=10, verify=False)
+        # 1. بنروح لصفحة روتانا نجيب التوكن "الحي" حالياً
+        web_res = requests.get("https://rotana.net/en/live/channels#/live/rotana-cinema", headers=HEADERS, proxies=PROXIES, timeout=10)
         
-        if r.status_code == 200:
-            base_url = target_url.rsplit('/', 1)[0] + '/'
-            lines = r.text.splitlines()
-            fixed_lines = []
-            
-            for line in lines:
-                if line.endswith(".ts") and not line.startswith("http"):
-                    # إجبار المشغل على طلب الفيديو من سيرفرك أنت (Relay)
-                    full_ts_url = base_url + line
-                    fixed_lines.append(f"/ts?url={full_ts_url}")
-                else:
-                    fixed_lines.append(line)
-            
-            return Response(content="\n".join(fixed_lines), media_type="application/vnd.apple.mpegurl")
-        return {"error": "Rotana Source Down"}
+        # 2. بنطلع التوكن من جافا سكريبت الصفحة (مثلاً: 7Y83PP5adWixDF93)
+        token_match = re.search(r'cinema_net-([a-zA-Z0-9]+)', web_res.text)
+        token = token_match.group(1) if token_match else "7Y83PP5adWixDF93"
+
+        # 3. ده الرابط الخام اللي المتصفح بيفتحه عندك
+        final_link = f"https://rotana.hibridcdn.net/rotananet/cinema_net-{token}/rotana/cinema_720p/chunks.m3u8"
+        
+        # 4. بنجيب محتوى الملف ونعدل الروابط جواه عشان تبقى كاملة
+        r = requests.get(final_link, headers=HEADERS, proxies=PROXIES, timeout=10)
+        base_url = final_link.rsplit('/', 1)[0] + '/'
+        
+        # بنضيف الـ Full Path لكل قطعة فيديو
+        fixed_content = r.text.replace('l_154', base_url + 'l_154')
+        
+        return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
+
     except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/ts")
-def stream_ts(url: str):
-    # 3. سحب قطعة الفيديو الفعلية بالبروكسي والـ Headers وتمريرها للمشاهد
-    def generate():
-        headers = {"User-Agent": USER_AGENT, "Referer": REFERER}
-        with requests.get(url, headers=headers, proxies=PROXIES, stream=True, timeout=15, verify=False) as r:
-            for chunk in r.iter_content(chunk_size=1024*256):
-                yield chunk
-
-    return StreamingResponse(generate(), media_type="video/MP2T")
+        raise HTTPException(status_code=500, detail=str(e))
