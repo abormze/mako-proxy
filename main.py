@@ -3,12 +3,12 @@ import requests
 import urllib3
 import re
 
-# Disable SSL warnings
+# Disable SSL warnings for proxy
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI()
 
-# --- NEW ISRAELI PROXY ---
+# --- YOUR UPDATED ISRAELI PROXY ---
 PROXIES = {
     "http": "http://45.150.108.239:39811",
     "https": "http://45.150.108.239:39811"
@@ -24,24 +24,23 @@ HEADERS = {
 
 @app.get("/")
 def home():
-    return {"status": "Koko Israel-Only Shield Active"}
+    return {"status": "Koko Israel Shield Online", "version": "Automated v3"}
 
 @app.get("/mako/live.m3u8")
 def get_stream(request: Request):
-    # --- SMART GEO-LOCK (FASTEST METHOD) ---
-    # Koyeb passes the visitor's country in 'cf-ipcountry' header
-    visitor_country = request.headers.get("cf-ipcountry", "Unknown")
-    
-    # Get Real IP for logging
+    # --- ENHANCED GEO-LOCK CHECK ---
+    # Try multiple ways to get the visitor's country
+    country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country") or "Unknown"
     visitor_ip = request.headers.get("x-forwarded-for", request.client.host).split(",")[0]
     
-    print(f"[*] Access attempt from: {visitor_ip} | Country: {visitor_country}")
+    print(f"[*] Access attempt: IP={visitor_ip} | Country={country}")
 
-    # السماح فقط بـ IL (إسرائيل) أو Unknown (احتياطاً لبعض الحالات)
-    if visitor_country not in ["IL", "Unknown"]:
+    # السماح بـ IL (إسرائيل) أو Unknown (عشان ما يقفلش في وشك لو الهيدر ناقص)
+    # الحظر فقط لو الدولة معروفة إنها مش إسرائيل (مثل US, GB, DE)
+    if country != "Unknown" and country != "IL":
         raise HTTPException(
             status_code=403, 
-            detail=f"Access Denied: Your Country is {visitor_country}. This stream is for Israel residents only."
+            detail=f"Access Denied: Your Country is {country}. Israel residents only."
         )
 
     # --- AUTO-SCRAPER LOGIC ---
@@ -49,21 +48,19 @@ def get_stream(request: Request):
         session = requests.Session()
         res = session.get(MAKO_WEB_URL, headers=HEADERS, proxies=PROXIES, timeout=15, verify=False)
         
-        # البحث عن الرابط الجديد بالتوكن
+        # Search for fresh .m3u8 with token
         match = re.search(r'https://[^\s"]+index\.m3u8\?hdnea=[^\s"]+', res.text)
         
         if match:
             dynamic_url = match.group(0).replace('\\', '')
-            
-            # سحب الملف عبر البروكسي
             r = requests.get(dynamic_url, headers=HEADERS, proxies=PROXIES, timeout=15, verify=False)
             
             if r.status_code == 200:
-                # تصحيح المسارات لـ VLC
+                # Fix relative paths for VLC
                 fixed_content = r.text.replace('profile', BASE_PATH + 'profile')
                 return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
         
-        raise HTTPException(status_code=500, detail="Mako Scraper Failed")
+        raise HTTPException(status_code=500, detail="Scraper Error: Could not find token")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
