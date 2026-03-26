@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Response, Request
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Response, HTTPException
+from fastapi.responses import RedirectResponse
 import requests
 import urllib3
 
@@ -7,54 +7,52 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI()
 
-# --- YOUR STABLE HOME PROXY ---
+# --- YOUR STABLE HOME PROXY (Important for M3U8 fetching) ---
 PROXIES = {
     "http": "http://82.81.95.155:39811",
     "https": "http://82.81.95.155:39811"
 }
 
-# The Direct 720p Chunk URL you provided
-ROTANA_720P_URL = "https://rotana.hibridcdn.net/rotananet/cinema_net-7Y83PP5adWixDF93/rotana/cinema_720p/chunks.m3u8"
+# The Link from your screenshot (720p Stable)
+ROTANA_CINEMA_720P = "https://rotana.hibridcdn.net/rotananet/cinema_net-7Y83PP5adWixDF93/rotana/cinema_720p/chunks.m3u8"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Referer": "https://rotana.net/",
     "Origin": "https://rotana.net"
 }
 
 @app.get("/")
 def home():
-    return {"status": "Koko Cinema Relay Active", "mode": "Full-Proxy-720p"}
+    return {"status": "Rotana Direct-Pass Active"}
 
 @app.get("/rotana/cinema.m3u8")
-def proxy_m3u8():
+def get_cinema_m3u8():
     try:
-        # Step 1: Fetch the chunks.m3u8 via Proxy
-        r = requests.get(ROTANA_720P_URL, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
-        lines = r.text.splitlines()
+        # Step 1: Fetch the m3u8 using your Home Proxy
+        r = requests.get(ROTANA_CINEMA_720P, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
         
-        # Step 2: Re-write the file to force every .ts segment through our server
-        base_url = ROTANA_720P_URL.rsplit('/', 1)[0] + '/'
-        new_m3u8 = []
-        
-        for line in lines:
-            if line.endswith(".ts"):
-                full_ts_url = base_url + line if not line.startswith("http") else line
-                # Redirect segment to our internal proxy endpoint
-                new_m3u8.append(f"/ts_relay?url={full_ts_url}")
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail="M3U8 Fetch Failed")
+
+        # Step 2: Fix the paths so VLC can find the segments (.ts)
+        base_url = ROTANA_CINEMA_720P.rsplit('/', 1)[0] + '/'
+        original_content = r.text
+        fixed_content = ""
+
+        for line in original_content.splitlines():
+            if line.endswith(".ts") and not line.startswith("http"):
+                # Make the path full so VLC knows where to go
+                fixed_content += base_url + line + "\n"
             else:
-                new_m3u8.append(line)
+                fixed_content += line + "\n"
         
-        return Response(content="\n".join(new_m3u8), media_type="application/vnd.apple.mpegurl")
+        return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
+
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/ts_relay")
-def ts_relay(url: str):
-    # Step 3: Fetch the actual video segment via Proxy and stream it back
-    def stream_data():
-        with requests.get(url, headers=HEADERS, proxies=PROXIES, stream=True, timeout=15, verify=False) as r:
-            for chunk in r.iter_content(chunk_size=1024*512):
-                yield chunk
-
-    return StreamingResponse(stream_data(), media_type="video/MP2T")
+# Adding a simple Redirect for the segments if needed
+@app.get("/rotana/segment")
+def redirect_segment(url: str):
+    return RedirectResponse(url=url)
