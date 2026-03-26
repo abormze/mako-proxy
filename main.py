@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Response, HTTPException, Request
+from fastapi import FastAPI, Response, Request
 from fastapi.responses import StreamingResponse
 import requests
 import urllib3
@@ -13,11 +13,8 @@ PROXIES = {
     "https": "http://82.81.95.155:39811"
 }
 
-CHANNELS = {
-    "cinema": "https://rotana.hibridcdn.net/rotananet/cinemamasr_net-7Y83PP5adWixDF93/playlist.m3u8",
-    "aflam": "https://d35j504z0x2vu2.cloudfront.net/v1/master/0bc8e8376bd8417a1b6761138aa41c26c7309312/rotana-aflam-plus/master.m3u8",
-    "drama": "https://rotana.hibridcdn.net/rotananet/drama_net-7Y83PP5adWixDF93/playlist.m3u8"
-}
+# The Direct 720p Chunk URL you provided
+ROTANA_720P_URL = "https://rotana.hibridcdn.net/rotananet/cinema_net-7Y83PP5adWixDF93/rotana/cinema_720p/chunks.m3u8"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -27,44 +24,37 @@ HEADERS = {
 
 @app.get("/")
 def home():
-    return {"status": "Koko Stream Relay Active"}
+    return {"status": "Koko Cinema Relay Active", "mode": "Full-Proxy-720p"}
 
-@app.get("/rotana/{channel_name}.m3u8")
-def proxy_stream(channel_name: str):
-    if channel_name not in CHANNELS:
-        raise HTTPException(status_code=404)
-    
-    target_url = CHANNELS[channel_name]
-    
+@app.get("/rotana/cinema.m3u8")
+def proxy_m3u8():
     try:
-        # Step 1: Fetch the M3U8 content
-        r = requests.get(target_url, headers=HEADERS, proxies=PROXIES, timeout=10, verify=False)
+        # Step 1: Fetch the chunks.m3u8 via Proxy
+        r = requests.get(ROTANA_720P_URL, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
+        lines = r.text.splitlines()
         
-        # Step 2: Fix the content to make all segments go through our server
-        # This is the "Magic" part that fixes the black screen
-        original_text = r.text
-        base_url = target_url.rsplit('/', 1)[0] + '/'
+        # Step 2: Re-write the file to force every .ts segment through our server
+        base_url = ROTANA_720P_URL.rsplit('/', 1)[0] + '/'
+        new_m3u8 = []
         
-        fixed_content = ""
-        for line in original_text.splitlines():
-            if line.endswith(".ts") or line.endswith(".m3u8"):
-                if not line.startswith("http"):
-                    line = base_url + line
-                # Redirect segment request through our proxy endpoint
-                fixed_content += f"/proxy_segment?url={line}\n"
+        for line in lines:
+            if line.endswith(".ts"):
+                full_ts_url = base_url + line if not line.startswith("http") else line
+                # Redirect segment to our internal proxy endpoint
+                new_m3u8.append(f"/ts_relay?url={full_ts_url}")
             else:
-                fixed_content += line + "\n"
+                new_m3u8.append(line)
         
-        return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
+        return Response(content="\n".join(new_m3u8), media_type="application/vnd.apple.mpegurl")
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/proxy_segment")
-def proxy_segment(url: str):
-    # This function fetches the actual video data and streams it to the user
-    def stream_video():
+@app.get("/ts_relay")
+def ts_relay(url: str):
+    # Step 3: Fetch the actual video segment via Proxy and stream it back
+    def stream_data():
         with requests.get(url, headers=HEADERS, proxies=PROXIES, stream=True, timeout=15, verify=False) as r:
-            for chunk in r.iter_content(chunk_size=1024*1024):
+            for chunk in r.iter_content(chunk_size=1024*512):
                 yield chunk
 
-    return StreamingResponse(stream_video(), media_type="video/MP2T")
+    return StreamingResponse(stream_data(), media_type="video/MP2T")
