@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Response, HTTPException, Request
+from fastapi import FastAPI, Response, HTTPException
 import requests
 import urllib3
 
@@ -7,54 +7,49 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI()
 
-# --- YOUR STABLE HOME PROXY (82.81) ---
-PROXIES = {
-    "http": "http://82.81.95.155:39811",
-    "https": "http://82.81.95.155:39811"
+# Rotana Channels Database (Direct Links)
+CHANNELS = {
+    "cinema": "https://rotana.hibridcdn.net/rotananet/cinemamasr_net-7Y83PP5adWixDF93/playlist.m3u8",
+    "aflam": "https://d35j504z0x2vu2.cloudfront.net/v1/master/0bc8e8376bd8417a1b6761138aa41c26c7309312/rotana-aflam-plus/master.m3u8",
+    "khalijia": "https://rotana.hibridcdn.net/rotananet/khalejia_net-7Y83PP5adWixDF93/playlist.m3u8",
+    "drama": "https://rotana.hibridcdn.net/rotananet/drama_net-7Y83PP5adWixDF93/playlist.m3u8",
+    "kids": "https://rotana.hibridcdn.net/rotananet/kids_net-7Y83PP5adWixDF93/playlist.m3u8",
+    "clip": "https://rotana.hibridcdn.net/rotananet/clip_net-7Y83PP5adWixDF93/playlist.m3u8"
 }
 
-# The Direct Mako Ticket API (Fastest and most stable)
-MAKO_API_TICKET = "https://mass.mako.co.il/ClicksStatistics/bentayemStreaming.dot?channelId=mako12&videoType=live"
-BASE_PATH = "https://mako-streaming.akamaized.net/stream/hls/live/2033791/k12makowad/"
-
+# Essential headers to mimic a browser
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Referer": "https://www.mako.co.il/"
+    "Referer": "https://rotana.net/",
+    "Origin": "https://rotana.net"
 }
 
 @app.get("/")
-def status():
-    return {"status": "Koko Shield v7 Online", "proxy": "Home-82.81", "region": "Israel-Only"}
+def home():
+    return {
+        "status": "Rotana Engine Online",
+        "proxy_status": "Disabled (Direct Mode)",
+        "available_channels": list(CHANNELS.keys())
+    }
 
-@app.get("/mako/live.m3u8")
-def get_stream(request: Request):
-    # --- 1. GEO-FENCE: ISRAEL ONLY ---
-    # Detect country from Koyeb/Cloudflare header
-    visitor_country = request.headers.get("cf-ipcountry", "Unknown")
+@app.get("/rotana/{channel_name}.m3u8")
+def get_rotana_channel(channel_name: str):
+    if channel_name not in CHANNELS:
+        raise HTTPException(status_code=404, detail="Channel not found")
     
-    if visitor_country != "IL" and visitor_country != "Unknown":
-        raise HTTPException(
-            status_code=403, 
-            detail=f"Access Denied: Stream restricted to Israel residents only."
-        )
-
+    target_url = CHANNELS[channel_name]
+    
     try:
-        # --- 2. GET FRESH TOKEN VIA HOME PROXY ---
-        # Calling Mako API directly to get the mediaUrl
-        api_response = requests.get(MAKO_API_TICKET, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
-        data = api_response.json()
-        fresh_url = data.get("mediaUrl")
+        # Fetching directly from Koyeb server without proxy
+        r = requests.get(target_url, headers=HEADERS, timeout=15, verify=False)
         
-        if fresh_url:
-            # --- 3. PULL M3U8 PLAYLIST VIA PROXY ---
-            r = requests.get(fresh_url, headers=HEADERS, proxies=PROXIES, timeout=12, verify=False)
+        if r.status_code == 200:
+            return Response(content=r.text, media_type="application/vnd.apple.mpegurl")
+        else:
+            raise HTTPException(
+                status_code=r.status_code, 
+                detail=f"Rotana denied direct access (Status: {r.status_code})"
+            )
             
-            if r.status_code == 200:
-                # --- 4. PATH CORRECTION FOR VLC ---
-                fixed_content = r.text.replace('profile', BASE_PATH + 'profile')
-                return Response(content=fixed_content, media_type="application/vnd.apple.mpegurl")
-        
-        raise HTTPException(status_code=500, detail="Mako API failed to provide a token")
-
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"System Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Server Connection Error: {str(e)}")
